@@ -36,26 +36,19 @@ class Sdist(sdist):
   """Make a sdist release."""
 
   REQUIRED_COMPONENTS = [
-      r"grr-chipsec-component_.+linux_i686.bin",
       r"grr-chipsec-component_.+linux_x86_64.bin",
       r"grr-chipsec-component_.+macosx_.+_x86_64.bin",
-      r"grr-chipsec-component_.+win32.bin",
       r"grr-chipsec-component_.+win_amd64.bin",
-      r"grr-rekall_.+linux_i686.bin",
       r"grr-rekall_.+linux_x86_64.bin",
       r"grr-rekall_.+macosx_.+_x86_64.bin",
-      r"grr-rekall_.+win32.bin",
       r"grr-rekall_.+win_amd64.bin",
   ]
 
   REQUIRED_TEMPLATES = [
       "GRR_maj.minor_amd64.exe.zip",
-      "GRR_maj.minor_i386.exe.zip",
       "grr_maj.minor_amd64.deb.zip",
       "grr_maj.minor_amd64.xar.zip",
       "grr_maj.minor_amd64.rpm.zip",
-      "grr_maj.minor_i386.deb.zip",
-      "grr_maj.minor_i386.rpm.zip",
   ]
 
   def CheckTemplates(self, base_dir, version):
