@@ -88,14 +88,13 @@ var stripTypeInfo = grrUi.core.apiService.stripTypeInfo;
  * @param {angular.$http} $http The Angular http service.
  * @param {!angular.$q} $q
  * @param {!angular.$interval} $interval
- * @param {!angular.$timeout} $timeout
  * @param {grrUi.core.loadingIndicatorService.LoadingIndicatorService} grrLoadingIndicatorService
  * @constructor
  * @ngInject
  * @export
  */
 grrUi.core.apiService.ApiService = function(
-    $http, $q, $interval, $timeout, grrLoadingIndicatorService) {
+    $http, $q, $interval, grrLoadingIndicatorService) {
   /** @private {angular.$http} */
   this.http_ = $http;
 
@@ -105,11 +104,11 @@ grrUi.core.apiService.ApiService = function(
   /** @private {!angular.$interval} */
   this.interval_ = $interval;
 
-  /** @private {!angular.$timeout} */
-  this.timeout_ = $timeout;
-
   /** @private {grrUi.core.loadingIndicatorService.LoadingIndicatorService} */
   this.grrLoadingIndicatorService_ = grrLoadingIndicatorService;
+
+  /** @private {!angular.$q.Deferred} */
+  this.authDeferred_ = this.q_.defer();
 };
 var ApiService = grrUi.core.apiService.ApiService;
 
@@ -118,6 +117,33 @@ var ApiService = grrUi.core.apiService.ApiService;
  * Name of the service in Angular.
  */
 ApiService.service_name = 'grrApiService';
+
+
+/**
+ * Executes a given function only when authentication setup was done (i.e. after
+ * markAuthDone was called).
+ *
+ * @param {function()} fn Callback to be called when authentication is done.
+ * @return {!angular.$q.Promise} Promise that will be resolved with a callback
+ *     return value after the authentication setup is done.
+ * @private
+ */
+ApiService.prototype.waitForAuth_ = function(fn) {
+  return this.authDeferred_.promise.then(function() {
+    return fn();
+  });
+};
+
+/**
+ * This marks authentication setup as done, immediately resolving all promises
+ * created by ApiService calls and blocked on the authentication setup.
+ *
+ * @export
+ */
+ApiService.prototype.markAuthDone = function() {
+  this.authDeferred_.resolve();
+};
+
 
 /**
  * Fetches data for a given API url via the specified HTTP method.
@@ -138,15 +164,17 @@ ApiService.prototype.sendRequestWithoutPayload_ = function(
   var loadingKey = this.grrLoadingIndicatorService_.startLoading();
   var url = encodeUrlPath('/api/' + apiPath.replace(/^\//, ''));
 
-  var promise = /** @type {function(Object)} */ (this.http_)({
-    method: method,
-    url: url,
-    params: requestParams,
-    cache: requestSettings['cache']
-  });
+  return this.waitForAuth_(function() {
+    var promise = /** @type {function(Object)} */ (this.http_)({
+      method: method,
+      url: url,
+      params: requestParams,
+      cache: requestSettings['cache']
+    });
 
-  return promise.finally(function() {
-    this.grrLoadingIndicatorService_.stopLoading(loadingKey);
+    return promise.finally(function() {
+      this.grrLoadingIndicatorService_.stopLoading(loadingKey);
+    }.bind(this));
   }.bind(this));
 };
 
@@ -208,28 +236,34 @@ ApiService.prototype.poll = function(apiPath, opt_params, opt_checkFn) {
     }.bind(this);
   }
 
-  var cancelled = false;
+  var result = this.q_.defer();
+  var inProgress = false;
   var pollIteration = function() {
-    if (cancelled) {
-      return;
-    }
-
-    return this.get(apiPath, opt_params).then(function success(response) {
+    inProgress = true;
+    this.get(apiPath, opt_params).then(function success(response) {
       if (opt_checkFn(response)) {
-        return response;
-      } else {
-        return this.timeout_(pollIteration, 1000);
+        result.resolve(response);
       }
     }.bind(this), function failure(response) {
-      return this.q_.reject(response);
+      result.reject(response);
+    }.bind(this)).finally(function() {
+      inProgress = false;
     }.bind(this));
   }.bind(this);
 
-  var result = pollIteration();
-  result['cancel'] = function() {
-    cancelled = true;
-  };
-  return result;
+  pollIteration();
+
+  var intervalPromise = this.interval_(function() {
+    if (!inProgress) {
+      pollIteration();
+    }
+  }.bind(this), 1000);
+  result.promise['cancel'] = function() {
+    this.interval_.cancel(intervalPromise);
+  }.bind(this);
+  result.promise.finally(result.promise['cancel']);
+
+  return result.promise;
 };
 
 /**
@@ -365,10 +399,12 @@ ApiService.prototype.sendRequestWithPayload_ = function(
     };
   }
 
-  var loadingKey = this.grrLoadingIndicatorService_.startLoading();
-  var promise = /** @type {function(Object)} */ (this.http_)(request);
-  return promise.finally(function() {
-    this.grrLoadingIndicatorService_.stopLoading(loadingKey);
+  return this.waitForAuth_(function() {
+    var loadingKey = this.grrLoadingIndicatorService_.startLoading();
+    var promise = /** @type {function(Object)} */ (this.http_)(request);
+    return promise.finally(function() {
+      this.grrLoadingIndicatorService_.stopLoading(loadingKey);
+    }.bind(this));
   }.bind(this));
 };
 
